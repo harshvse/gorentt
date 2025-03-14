@@ -36,7 +36,7 @@ func (i *TorrentInfo) splitPieceHashes() ([][20]byte, error) {
 	hashLen := 20
 	buf := []byte(i.Pieces)
 	if len(buf)%hashLen != 0 {
-		err := fmt.Errorf("What in the world are these pieces harsh! %d", len(buf))
+		err := fmt.Errorf("what in the world are these pieces harsh! %d", len(buf))
 		return nil, err
 	}
 	numHashes := len(buf) / hashLen
@@ -54,7 +54,7 @@ func (benTorrent BenTorrent) generateInfoHash() [20]byte {
 	infoHash.Write([]byte(benTorrent.Info.Name))
 	infoHash.Write([]byte(benTorrent.Info.Pieces))
 	infoHash.Write([]byte(benTorrent.Info.Pieces))
-	infoHash.Write([]byte(string(benTorrent.Info.PieceLength)))
+	infoHash.Write([]byte(string(rune(benTorrent.Info.PieceLength))))
 
 	return [20]byte(infoHash.Sum(nil))
 }
@@ -107,5 +107,4 @@ func main() {
 	}
 
 	fmt.Println(torrentFile.Announce)
-	return
 }
