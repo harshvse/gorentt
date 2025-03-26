@@ -2,18 +2,21 @@ package main
 
 import (
 	"crypto/sha1"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"os"
+	"strconv"
 
 	"github.com/jackpal/bencode-go"
 )
 
 type BenTorrent struct {
-	Announce     string      `bencode:"announce"`
-	Comment      string      `bencode:"comment"`
-	CreationDate int         `bencode:"creation date"`
-	Info         TorrentInfo `bencode:"info"`
+	Announce string      `bencode:"announce"`
+	Info     TorrentInfo `bencode:"info"`
 }
 
 type TorrentInfo struct {
@@ -50,12 +53,7 @@ func (i *TorrentInfo) splitPieceHashes() ([][20]byte, error) {
 
 func (benTorrent BenTorrent) generateInfoHash() [20]byte {
 
-	infoHash := sha1.New()
-	infoHash.Write([]byte(benTorrent.Info.Name))
-	infoHash.Write([]byte(benTorrent.Info.Pieces))
-	infoHash.Write([]byte(benTorrent.Info.Pieces))
-	infoHash.Write([]byte(string(rune(benTorrent.Info.PieceLength))))
-
+	infoHash := sha1.Sum([]bytes(benTorrent))
 	return [20]byte(infoHash.Sum(nil))
 }
 
@@ -77,12 +75,56 @@ func (benTorrent BenTorrent) ToTorrentFile() (*TorrentFile, error) {
 	}
 	return &torrentFile, nil
 }
+
+func (t *TorrentFile) buildTrackerURL(peerID [20]byte, port uint16) (string, error) {
+	base, err := url.Parse(t.Announce)
+	if err != nil {
+		return "", err
+	}
+
+	params := url.Values{
+		"info_hash":  []string{string(t.InfoHash[:])},
+		"peer_id":    []string{string(peerID[:])},
+		"port":       []string{strconv.Itoa(int(port))},
+		"uploaded":   []string{"0"},
+		"downloaded": []string{"0"},
+		"compact":    []string{"1"},
+		"left":       []string{strconv.Itoa(t.Length)},
+	}
+
+	base.RawQuery = params.Encode()
+	return base.String(), nil
+}
+
 func ReadTorrent(r io.Reader) (*BenTorrent, error) {
 	benTorrentFile := BenTorrent{}
 	if err := bencode.Unmarshal(r, &benTorrentFile); err != nil {
 		return nil, err
 	}
 	return &benTorrentFile, nil
+}
+
+type Peer struct {
+	IP   net.IP
+	Port uint16
+}
+
+func UnmarshalPeers(PeersBin []byte) ([]Peer, error) {
+	peerSize := 6 // each seperate peer will have 6 bytes 4 for IP and 2 for Port number
+	numPeers := len(PeersBin) / peerSize
+	if (len(PeersBin) % peerSize) != 0 {
+		err := fmt.Errorf("Recieved Corrupt Peers")
+		return nil, err
+	}
+
+	peers := make([]Peer, numPeers)
+
+	for i := 0; i < numPeers; i++ {
+		offset := i * peerSize
+		peers[i].IP = net.IP(PeersBin[offset : offset+4])
+		peers[i].Port = binary.BigEndian.Uint16(PeersBin[offset+4 : offset+6])
+	}
+	return peers, nil
 }
 
 func main() {
@@ -106,5 +148,20 @@ func main() {
 		return
 	}
 
-	fmt.Println(torrentFile.Announce)
+	clientID := []byte("gorentt-k8hj0wgej6ch")
+	url, err := torrentFile.buildTrackerURL([20]byte(clientID), 9888)
+
+	peersBin, err := http.Get(url)
+
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
+	fmt.Println("buildURL: %s", url)
+	fmt.Printf("peersBin.Body: %s\n", peersBin.Status)
+
+	// peer := UnmarshalPeers()
+
+	// conn, err := net.DialTimeout("TCP", peer.string(), 3*time.Second)
+
 }
