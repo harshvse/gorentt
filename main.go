@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"encoding/binary"
 	"fmt"
@@ -15,8 +16,10 @@ import (
 )
 
 type BenTorrent struct {
-	Announce string      `bencode:"announce"`
-	Info     TorrentInfo `bencode:"info"`
+	Announce     string      `bencode:"announce"`
+	Comment      string      `bencode:"comment"`
+	CreationDate int         `bencode:"creation date"`
+	Info         TorrentInfo `bencode:"info"`
 }
 
 type TorrentInfo struct {
@@ -51,10 +54,20 @@ func (i *TorrentInfo) splitPieceHashes() ([][20]byte, error) {
 	return hashes, nil
 }
 
-func (benTorrent BenTorrent) generateInfoHash() [20]byte {
+func (benTorrent BenTorrent) generateInfoHash() ([20]byte, error) {
+	// Create a buffer to hold bencoded info dictionary
+	var buf bytes.Buffer
 
-	infoHash := sha1.Sum([]bytes(benTorrent))
-	return [20]byte(infoHash.Sum(nil))
+	// Encode the 'info' dictionary into the buffer
+	err := bencode.Marshal(&buf, benTorrent.Info)
+	if err != nil {
+		return [20]byte{}, fmt.Errorf("failed to bencode info dict: %w", err)
+	}
+
+	// Compute SHA-1 hash of the bencoded info dictionary
+	infoHash := sha1.Sum(buf.Bytes())
+
+	return infoHash, nil
 }
 
 func (benTorrent BenTorrent) ToTorrentFile() (*TorrentFile, error) {
@@ -64,7 +77,13 @@ func (benTorrent BenTorrent) ToTorrentFile() (*TorrentFile, error) {
 
 	torrentFile.name = benTorrent.Info.Name
 
-	torrentFile.InfoHash = benTorrent.generateInfoHash()
+	infoHash, err := benTorrent.generateInfoHash()
+
+	if err != nil {
+		return nil, err
+	}
+
+	torrentFile.InfoHash = infoHash
 
 	torrentFile.PieceLength = benTorrent.Info.PieceLength
 
@@ -82,17 +101,17 @@ func (t *TorrentFile) buildTrackerURL(peerID [20]byte, port uint16) (string, err
 		return "", err
 	}
 
-	params := url.Values{
-		"info_hash":  []string{string(t.InfoHash[:])},
-		"peer_id":    []string{string(peerID[:])},
-		"port":       []string{strconv.Itoa(int(port))},
-		"uploaded":   []string{"0"},
-		"downloaded": []string{"0"},
-		"compact":    []string{"1"},
-		"left":       []string{strconv.Itoa(t.Length)},
-	}
+	// ✅ Correctly encode info_hash (using URL-encoded raw bytes)
+	params := url.Values{}
+	params.Add("info_hash", string(t.InfoHash[:])) // No extra encoding needed
+	params.Add("peer_id", string(peerID[:]))
+	params.Add("port", strconv.Itoa(int(port)))
+	params.Add("uploaded", "0")
+	params.Add("downloaded", "0")
+	params.Add("compact", "1")
+	params.Add("left", strconv.Itoa(t.Length))
 
-	base.RawQuery = params.Encode()
+	base.RawQuery = params.Encode() // Let Go handle correct encoding
 	return base.String(), nil
 }
 
@@ -142,6 +161,7 @@ func main() {
 		return
 	}
 
+	fmt.Println(benTorrentFile.Announce)
 	torrentFile, err := benTorrentFile.ToTorrentFile()
 	if err != nil {
 		fmt.Printf("Failed to convert into torrent file. Error: %s", err)
@@ -158,7 +178,7 @@ func main() {
 		return
 	}
 	fmt.Println("buildURL: %s", url)
-	fmt.Printf("peersBin.Body: %s\n", peersBin.Status)
+	fmt.Printf("peersBin.Body: %s\n", peersBin.Body)
 
 	// peer := UnmarshalPeers()
 
