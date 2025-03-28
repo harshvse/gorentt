@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/jackpal/bencode-go"
 )
@@ -73,8 +75,20 @@ func main() {
 		return
 	}
 
-	fmt.Println(peer)
+	conn, err := net.DialTimeout("tcp", peer[1].ToString(), 3*time.Second)
+	if err != nil {
+		fmt.Println(err.Error())
+		return
+	}
 
-	// conn, err := net.DialTimeout("TCP", peer.string(), 3*time.Second)
+	defer conn.Close()
+
+	handshake := Handshake{
+		Pstr:     "BitTorrent Protocol",
+		InfoHash: torrentFile.InfoHash,
+		PeerID:   [20]byte(clientID),
+	}
+
+	serialHandshake := handshake.Serialize()
 
 }

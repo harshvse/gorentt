@@ -23,3 +23,8 @@ func (t *TorrentFile) buildTrackerURL(peerID [20]byte, port uint16) (string, err
 	base.RawQuery = params.Encode()
 	return base.String(), nil
 }
+
+func (p *Peer) ToString() string {
+	url := p.IP.String() + ":" + strconv.Itoa(int(p.Port))
+	return url
+}
